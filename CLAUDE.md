@@ -1,0 +1,3 @@
+- always update the README.md with any DSL changes
+- this is a faithful reproduction of https://github.com/adamralph/xbehave.net 
+- when unsure how to proceed, or how to complete incomplete features, first check the above repository to try to faithfully recreate the original behaviour
