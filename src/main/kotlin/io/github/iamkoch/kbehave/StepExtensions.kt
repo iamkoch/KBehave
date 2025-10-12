@@ -1,7 +1,7 @@
 package io.github.iamkoch.kbehave
 
 /**
- * Wrapper class to enable teardown syntax after step definition.
+ * Wrapper class to enable teardown and onFailure syntax after step definition.
  */
 class StepDefinition(private val step: Step) {
     /**
@@ -15,6 +15,22 @@ class StepDefinition(private val step: Step) {
     infix fun teardown(action: suspend () -> Unit): StepDefinition {
         step.teardownActions.add(action)
         return this
+    }
+
+    /**
+     * Defines the behavior of remaining steps if this step fails.
+     *
+     * Usage:
+     * ```kotlin
+     * "When this step fails" x { doWork() } onFailure RemainingSteps.RUN
+     * ```
+     */
+    infix fun onFailure(behavior: RemainingSteps): StepDefinition {
+        // Need to update the step's failureBehavior
+        // Since Step is a data class, we need to replace it in the context
+        val updatedStep = step.copy(failureBehavior = behavior)
+        ScenarioContext.replaceLastStep(updatedStep)
+        return StepDefinition(updatedStep)
     }
 }
 

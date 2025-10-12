@@ -6,6 +6,7 @@ package io.github.iamkoch.kbehave
 class StepBuilder(private val description: String) {
     private var skipReason: String? = null
     private val teardownActions = mutableListOf<suspend () -> Unit>()
+    private var failureBehavior: RemainingSteps = RemainingSteps.SKIP
 
     /**
      * Marks this step as skipped with an optional reason.
@@ -24,10 +25,18 @@ class StepBuilder(private val description: String) {
     }
 
     /**
+     * Defines the behavior of remaining steps if this step fails.
+     */
+    fun onFailure(behavior: RemainingSteps): StepBuilder {
+        failureBehavior = behavior
+        return this
+    }
+
+    /**
      * Defines the step action and registers it with the current scenario context.
      */
     infix fun x(action: suspend () -> Unit) {
-        val step = Step(description, action, skipReason, teardownActions)
+        val step = Step(description, action, skipReason, teardownActions, failureBehavior)
         ScenarioContext.addStep(step)
     }
 }

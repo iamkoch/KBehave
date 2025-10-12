@@ -164,7 +164,7 @@ fun `scenario with cleanup`() {
 }
 ```
 
-You can also chain multiple teardown actions:
+You can also chain multiple teardown actions and combine with `onFailure`:
 
 ```kotlin
 "Given a database connection" x {
@@ -173,7 +173,7 @@ You can also chain multiple teardown actions:
     connection?.close()
 } teardown {
     cleanupTempFiles()
-}
+} onFailure RemainingSteps.RUN
 ```
 
 ## Skipping Steps
@@ -198,14 +198,45 @@ fun `scenario with skipped step`() {
 }
 ```
 
+## Controlling Step Execution on Failure
+
+By default, when a step fails, all remaining steps are skipped. You can control this behavior using the `onFailure` syntax:
+
+```kotlin
+@Scenario
+fun `teardown runs even on failure`() {
+    var cleanupExecuted = false
+
+    "Given a setup step" x {
+        setupResource()
+    }
+
+    "When this step fails" x {
+        throw Exception("Something went wrong")
+    } onFailure RemainingSteps.RUN  // Continue to next steps
+
+    "Then cleanup still happens" x {
+        cleanupExecuted = true
+        cleanup()
+    } onFailure RemainingSteps.RUN
+}
+```
+
+The `onFailure` infix function accepts a `RemainingSteps` enum:
+- `RemainingSteps.SKIP` (default) - Skip remaining steps if this step fails
+- `RemainingSteps.RUN` - Continue executing remaining steps even if this step fails
+
+This is particularly useful for ensuring teardown steps always run, or for scenarios where you want to collect multiple failure points.
+
 ## Step Execution Model
 
 KBehave follows these execution rules:
 
 1. **Sequential Execution**: Steps execute in the order they're defined
-2. **Fail Fast**: If a step fails (throws an exception), all remaining steps are skipped
-3. **Teardown Guaranteed**: Teardown actions always execute, even if the step fails
-4. **Visual Feedback**: Step execution is logged to the console:
+2. **Fail Fast (Default)**: If a step fails (throws an exception), remaining steps are skipped by default
+3. **Configurable Failure Behavior**: Use `onFailure RemainingSteps.RUN` to continue execution after failures
+4. **Teardown Guaranteed**: Teardown actions always execute, even if the step fails
+5. **Visual Feedback**: Step execution is logged to the console:
    - `✓` - Step passed
    - `✗` - Step failed
    - `↷` - Step skipped
@@ -275,7 +306,8 @@ fun `parameterized with teardown`(amount: Int, expected: Int) {
 | Basic scenarios | `[Scenario]` + `.x()` | `@Scenario` + `x` |
 | Parameterized tests | `[Example(...)]` | `@Example(...)` |
 | Skip steps | `.Skip()` | `.skip()` |
-| Teardown | `.Teardown()` | `.teardown()` |
+| Teardown | `.Teardown()` | `teardown` |
+| Failure behavior | `.OnFailure()` | `onFailure` |
 | Test framework | xUnit.net | JUnit 5 |
 | Language | C# | Kotlin |
 | Async support | async/await | suspend functions |
@@ -288,6 +320,7 @@ Check out the [example tests](src/test/kotlin/io/github/iamkoch/kbehave/examples
 - [ParameterizedScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/ParameterizedScenarioTest.kt) - Using `@Example`
 - [TeardownScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/TeardownScenarioTest.kt) - Resource cleanup
 - [SkipScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/SkipScenarioTest.kt) - Skipping steps
+- [OnFailureScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/OnFailureScenarioTest.kt) - Controlling execution on failure
 
 ## Building
 

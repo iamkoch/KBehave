@@ -10,6 +10,13 @@ object ScenarioContext {
         getSteps().add(step)
     }
 
+    fun replaceLastStep(step: Step) {
+        val stepList = getSteps()
+        if (stepList.isNotEmpty()) {
+            stepList[stepList.lastIndex] = step
+        }
+    }
+
     fun getSteps(): MutableList<Step> {
         return steps.get() ?: mutableListOf<Step>().also { steps.set(it) }
     }

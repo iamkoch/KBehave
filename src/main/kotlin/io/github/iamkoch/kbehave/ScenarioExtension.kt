@@ -160,7 +160,10 @@ class ScenarioExecutionExtension(private val args: Array<out Any>) :
                 }
             } catch (e: Throwable) {
                 println("  ✗ ${step.description}")
-                skipRemaining = true
+                // Only skip remaining steps if this step's failure behavior is SKIP
+                if (step.failureBehavior == RemainingSteps.SKIP) {
+                    skipRemaining = true
+                }
                 throw e
             }
         }
