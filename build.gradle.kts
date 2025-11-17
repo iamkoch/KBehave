@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     kotlin("jvm") version "1.9.20"
     `java-library`
@@ -56,6 +58,7 @@ publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
+            artifactId = "kbehave"
 
             pom {
                 name.set("KBehave")
@@ -103,6 +106,63 @@ publishing {
 signing {
     val signingKey = findProperty("signingKey") as String? ?: System.getenv("SIGNING_KEY")
     val signingPassword = findProperty("signingPassword") as String? ?: System.getenv("SIGNING_PASSWORD")
-    useInMemoryPgpKeys(signingKey, signingPassword)
+
+    // Only sign if credentials are present (skip for local publishing)
+    setRequired {
+        signingKey != null && signingPassword != null
+    }
+
+    if (signingKey != null && signingPassword != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+    }
     sign(publishing.publications["maven"])
+}
+
+// Generate checksums for Maven local repository (needed for Bazel)
+tasks.register("generateChecksums") {
+    group = "publishing"
+    description = "Generate SHA-1 and MD5 checksums for locally published artifacts"
+
+    doLast {
+        val mavenLocalDir = file("${System.getProperty("user.home")}/.m2/repository")
+        val groupPath = project.group.toString().replace('.', '/')
+        val artifactPath = "$groupPath/kbehave/${project.version}"
+        val artifactDir = mavenLocalDir.resolve(artifactPath)
+
+        println("Looking for artifacts in: ${artifactDir.absolutePath}")
+
+        if (artifactDir.exists()) {
+            val files = artifactDir.listFiles()?.filter {
+                it.extension in listOf("jar", "pom", "module")
+            } ?: emptyList()
+
+            println("Found ${files.size} files to process")
+
+            files.forEach { publishedFile ->
+                println("Processing: ${publishedFile.name}")
+
+                // Generate SHA-1
+                val sha1Bytes = MessageDigest.getInstance("SHA-1").digest(publishedFile.readBytes())
+                val sha1 = sha1Bytes.joinToString("") { "%02x".format(it) }
+                val sha1File = publishedFile.resolveSibling("${publishedFile.name}.sha1")
+                sha1File.writeText(sha1)
+                println("  Created: ${sha1File.name}")
+
+                // Generate MD5
+                val md5Bytes = MessageDigest.getInstance("MD5").digest(publishedFile.readBytes())
+                val md5 = md5Bytes.joinToString("") { "%02x".format(it) }
+                val md5File = publishedFile.resolveSibling("${publishedFile.name}.md5")
+                md5File.writeText(md5)
+                println("  Created: ${md5File.name}")
+            }
+            println("Checksum generation complete!")
+        } else {
+            println("ERROR: Artifact directory does not exist: ${artifactDir.absolutePath}")
+            println("Please run 'publishToMavenLocal' first")
+        }
+    }
+}
+
+tasks.named("publishToMavenLocal") {
+    finalizedBy("generateChecksums")
 }
