@@ -1,13 +1,15 @@
 package io.github.iamkoch.kbehave
 
-import org.junit.jupiter.api.TestTemplate
-import org.junit.jupiter.api.extension.ExtendWith
+import org.junit.jupiter.api.Test
 
 /**
  * Marks a method as a KBehave scenario.
  *
  * A scenario is a BDD-style test that consists of multiple steps,
  * each described with natural language.
+ *
+ * Each step is reported as a separate test node in the test runner,
+ * allowing you to see exactly which step passed or failed.
  *
  * Example:
  * ```kotlin
@@ -22,8 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith
  */
 @Target(AnnotationTarget.FUNCTION)
 @Retention(AnnotationRetention.RUNTIME)
-@TestTemplate
-@ExtendWith(ScenarioExtension::class)
+@Test
 annotation class Scenario(
     val displayName: String = ""
 )

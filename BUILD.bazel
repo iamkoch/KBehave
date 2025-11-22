@@ -1,8 +1,9 @@
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library", "kt_jvm_test")
 
 kt_jvm_library(
     name = "kbehave",
     srcs = glob(["src/main/kotlin/**/*.kt"]),
+    resources = glob(["src/main/resources/**/*"]),
     visibility = ["//visibility:public"],
     deps = [
         "@maven//:org_jetbrains_kotlin_kotlin_reflect",
@@ -12,4 +13,40 @@ kt_jvm_library(
         "@maven//:org_junit_jupiter_junit_jupiter_params",
         "@maven//:org_junit_platform_junit_platform_engine",
     ],
+)
+
+kt_jvm_library(
+  name = "tests-lib",
+  testonly = True,
+  srcs = glob([
+    "src/test/kotlin/**/*.kt"
+  ]),
+  resources = glob(
+    ["src/test/resources/**/*"],
+    allow_empty = True,
+  ),
+  visibility = ["//visibility:public"],
+  deps = [
+    ":kbehave",
+    "@maven//:org_jetbrains_kotlin_kotlin_test",
+    "@maven//:org_junit_jupiter_junit_jupiter_api",
+    "@maven//:org_junit_jupiter_junit_jupiter_engine",
+  ]
+)
+
+java_test(
+  name = "tests",
+  use_testrunner = False,
+  main_class = "org.junit.platform.console.ConsoleLauncher",
+  args = [
+    "--select-package=io.github.iamkoch.kbehave.examples",
+    "--details=tree",
+    "--fail-if-no-tests",
+  ],
+  runtime_deps = [
+      ":tests-lib",
+      "@maven//:org_junit_platform_junit_platform_launcher",
+      "@maven//:org_junit_platform_junit_platform_console",
+      "@maven//:org_junit_jupiter_junit_jupiter_engine",
+  ]
 )

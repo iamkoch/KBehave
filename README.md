@@ -241,6 +241,21 @@ KBehave follows these execution rules:
    - `✗` - Step failed
    - `↷` - Step skipped
 
+### Test Reporting
+
+Currently, KBehave reports test results at the **scenario level** (not individual steps) in most IDEs and test runners. This means:
+
+- ✅ Each `@Scenario` appears as a runnable test in your IDE
+- ✅ Step execution details are printed to the console output
+- ✅ You can see which steps passed/failed in the console
+- ⚠️  Steps do NOT appear as individual test nodes in the IDE test tree (unlike xBehave.net)
+
+To see detailed step-by-step execution:
+1. Run the tests
+2. Check the console output for the `✓`, `✗`, and `↷` symbols showing each step's status
+
+**Note**: Full IDE integration with individual step reporting (like xBehave.net's test tree) requires a custom JUnit Platform TestEngine, which is currently in development.
+
 ## Advanced Features
 
 ### Suspend Functions

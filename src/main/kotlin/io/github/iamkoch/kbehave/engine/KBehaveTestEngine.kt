@@ -1,6 +1,7 @@
 package io.github.iamkoch.kbehave.engine
 
 import io.github.iamkoch.kbehave.Scenario
+import io.github.iamkoch.kbehave.ScenarioContext
 import org.junit.platform.engine.*
 import org.junit.platform.engine.discovery.ClassSelector
 import org.junit.platform.engine.discovery.ClasspathRootSelector
@@ -12,13 +13,15 @@ import java.lang.reflect.Method
  * JUnit Platform TestEngine for KBehave.
  *
  * This engine automatically discovers test classes containing @Scenario methods,
- * regardless of class naming conventions. Users don't need any configuration -
- * just add KBehave as a dependency and it works.
+ * regardless of class naming conventions. Each step within a scenario is reported
+ * as a separate test node, providing xBehave.net-style reporting where you can see
+ * exactly which step failed.
  *
  * Discovery process:
  * 1. Scans classpath for classes with @Scenario methods
  * 2. Creates test descriptors for each class and scenario
- * 3. Delegates execution to ScenarioExtension (existing implementation)
+ * 3. Discovers steps within each scenario
+ * 4. Reports each step execution individually
  */
 class KBehaveTestEngine : TestEngine {
 
@@ -36,7 +39,7 @@ class KBehaveTestEngine : TestEngine {
 
         // Discover classes based on selectors
         discoveryRequest.getSelectorsByType(ClassSelector::class.java).forEach { selector ->
-            discoverClass(selector.javaClass, engineDescriptor)
+            discoverClass(selector.getJavaClass(), engineDescriptor)
         }
 
         discoveryRequest.getSelectorsByType(PackageSelector::class.java).forEach { selector ->
@@ -45,6 +48,11 @@ class KBehaveTestEngine : TestEngine {
 
         discoveryRequest.getSelectorsByType(ClasspathRootSelector::class.java).forEach { selector ->
             discoverClasspathRoot(selector.classpathRoot, engineDescriptor)
+        }
+
+        // Discover steps for each scenario during discovery phase (required by JUnit Platform)
+        engineDescriptor.descendants.filterIsInstance<KBehaveScenarioDescriptor>().forEach { scenarioDescriptor ->
+            scenarioDescriptor.discoverSteps()
         }
 
         return engineDescriptor
@@ -64,6 +72,8 @@ class KBehaveTestEngine : TestEngine {
                 engineDescriptor,
                 TestExecutionResult.failed(t)
             )
+        } finally {
+            ScenarioContext.clear()
         }
     }
 
@@ -85,10 +95,51 @@ class KBehaveTestEngine : TestEngine {
                 is KBehaveScenarioDescriptor -> {
                     listener.executionStarted(child)
                     try {
-                        child.execute()
+                        // Execute already-discovered steps
+                        executeScenarioSteps(child, listener)
                         listener.executionFinished(child, TestExecutionResult.successful())
                     } catch (t: Throwable) {
                         listener.executionFinished(child, TestExecutionResult.failed(t))
+                    } finally {
+                        ScenarioContext.clear()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun executeScenarioSteps(scenarioDescriptor: KBehaveScenarioDescriptor, listener: EngineExecutionListener) {
+        var skipRemaining = false
+
+        // Execute each already-discovered step descriptor
+        scenarioDescriptor.children.filterIsInstance<KBehaveStepDescriptor>().forEach { stepDescriptor ->
+            // Mark step as skipped if previous step failed
+            if (skipRemaining) {
+                stepDescriptor.shouldSkip = true
+                stepDescriptor.skipReason = "Previous step failed"
+            }
+
+            listener.executionStarted(stepDescriptor)
+
+            val result = stepDescriptor.execute()
+
+            when (result) {
+                is StepExecutionResult.Success -> {
+                    listener.executionFinished(stepDescriptor, TestExecutionResult.successful())
+                }
+                is StepExecutionResult.Skipped -> {
+                    listener.executionFinished(
+                        stepDescriptor,
+                        TestExecutionResult.aborted(null)
+                    )
+                }
+                is StepExecutionResult.Failed -> {
+                    listener.executionFinished(
+                        stepDescriptor,
+                        TestExecutionResult.failed(result.throwable)
+                    )
+                    if (result.shouldSkipRemaining) {
+                        skipRemaining = true
                     }
                 }
             }
