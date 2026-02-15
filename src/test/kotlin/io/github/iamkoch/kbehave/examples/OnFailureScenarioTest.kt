@@ -1,15 +1,11 @@
 package io.github.iamkoch.kbehave.examples
 
 import io.github.iamkoch.kbehave.*
-import org.junit.jupiter.api.TestTemplate
-import org.junit.jupiter.api.extension.ExtendWith
 import kotlin.test.assertEquals
 
-@ExtendWith(ScenarioExtension::class)
 class OnFailureScenarioTest {
 
     @Scenario
-    @TestTemplate
     fun `demonstration of onFailure RUN behavior`() {
         var setupRan = false
         var actionRan = false
@@ -33,7 +29,6 @@ class OnFailureScenarioTest {
     }
 
     @Scenario
-    @TestTemplate
     fun `demonstration of default SKIP behavior`() {
         var firstStepRan = false
 
@@ -48,7 +43,6 @@ class OnFailureScenarioTest {
     }
 
     @Scenario
-    @TestTemplate
     fun `using onFailure for cleanup steps`() {
         val resource = mutableListOf<String>()
 

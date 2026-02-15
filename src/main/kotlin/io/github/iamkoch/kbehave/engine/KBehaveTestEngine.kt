@@ -7,7 +7,6 @@ import org.junit.platform.engine.discovery.ClassSelector
 import org.junit.platform.engine.discovery.ClasspathRootSelector
 import org.junit.platform.engine.discovery.PackageSelector
 import org.junit.platform.engine.support.descriptor.EngineDescriptor
-import java.lang.reflect.Method
 
 /**
  * JUnit Platform TestEngine for KBehave.
@@ -23,7 +22,7 @@ import java.lang.reflect.Method
  * 3. Discovers steps within each scenario
  * 4. Reports each step execution individually
  */
-class KBehaveTestEngine : TestEngine {
+internal class KBehaveTestEngine : TestEngine {
 
     companion object {
         const val ENGINE_ID = "kbehave"
@@ -48,11 +47,6 @@ class KBehaveTestEngine : TestEngine {
 
         discoveryRequest.getSelectorsByType(ClasspathRootSelector::class.java).forEach { selector ->
             discoverClasspathRoot(selector.classpathRoot, engineDescriptor)
-        }
-
-        // Discover steps for each scenario during discovery phase (required by JUnit Platform)
-        engineDescriptor.descendants.filterIsInstance<KBehaveScenarioDescriptor>().forEach { scenarioDescriptor ->
-            scenarioDescriptor.discoverSteps()
         }
 
         return engineDescriptor
@@ -95,9 +89,36 @@ class KBehaveTestEngine : TestEngine {
                 is KBehaveScenarioDescriptor -> {
                     listener.executionStarted(child)
                     try {
-                        // Execute already-discovered steps
-                        executeScenarioSteps(child, listener)
-                        listener.executionFinished(child, TestExecutionResult.successful())
+                        val anyFailed = if (child.children.any { it is KBehaveExampleDescriptor }) {
+                            executeChildren(child, listener)
+                            false // container result is inferred from children by platform
+                        } else {
+                            executeScenarioSteps(child, listener)
+                        }
+                        if (anyFailed) {
+                            listener.executionFinished(child, TestExecutionResult.failed(
+                                AssertionError("Scenario failed: one or more steps failed")
+                            ))
+                        } else {
+                            listener.executionFinished(child, TestExecutionResult.successful())
+                        }
+                    } catch (t: Throwable) {
+                        listener.executionFinished(child, TestExecutionResult.failed(t))
+                    } finally {
+                        ScenarioContext.clear()
+                    }
+                }
+                is KBehaveExampleDescriptor -> {
+                    listener.executionStarted(child)
+                    try {
+                        val anyFailed = executeScenarioSteps(child, listener)
+                        if (anyFailed) {
+                            listener.executionFinished(child, TestExecutionResult.failed(
+                                AssertionError("Example failed: one or more steps failed")
+                            ))
+                        } else {
+                            listener.executionFinished(child, TestExecutionResult.successful())
+                        }
                     } catch (t: Throwable) {
                         listener.executionFinished(child, TestExecutionResult.failed(t))
                     } finally {
@@ -108,12 +129,14 @@ class KBehaveTestEngine : TestEngine {
         }
     }
 
-    private fun executeScenarioSteps(scenarioDescriptor: KBehaveScenarioDescriptor, listener: EngineExecutionListener) {
+    /**
+     * @return true if any step failed
+     */
+    private fun executeScenarioSteps(scenarioDescriptor: TestDescriptor, listener: EngineExecutionListener): Boolean {
         var skipRemaining = false
+        var anyFailed = false
 
-        // Execute each already-discovered step descriptor
         scenarioDescriptor.children.filterIsInstance<KBehaveStepDescriptor>().forEach { stepDescriptor ->
-            // Mark step as skipped if previous step failed
             if (skipRemaining) {
                 stepDescriptor.shouldSkip = true
                 stepDescriptor.skipReason = "Previous step failed"
@@ -134,6 +157,7 @@ class KBehaveTestEngine : TestEngine {
                     )
                 }
                 is StepExecutionResult.Failed -> {
+                    anyFailed = true
                     listener.executionFinished(
                         stepDescriptor,
                         TestExecutionResult.failed(result.throwable)
@@ -144,6 +168,7 @@ class KBehaveTestEngine : TestEngine {
                 }
             }
         }
+        return anyFailed
     }
 
     private fun discoverClass(clazz: Class<*>, parent: TestDescriptor) {
@@ -165,19 +190,105 @@ class KBehaveTestEngine : TestEngine {
                     method
                 )
                 classDescriptor.addChild(scenarioDescriptor)
+
+                // Discover steps immediately so the complete hierarchy exists for IntelliJ
+                scenarioDescriptor.discoverSteps()
             }
         }
     }
 
     private fun discoverPackage(packageName: String, parent: TestDescriptor) {
-        // Package scanning would require classpath scanning library
-        // For now, we rely on ClassSelector and ClasspathRootSelector
-        // This is typically provided by the build tool (Gradle, Maven, Bazel)
+        // Scan classpath for classes in the specified package
+        val classLoader = Thread.currentThread().contextClassLoader
+        val packagePath = packageName.replace('.', '/')
+
+        try {
+            val resources = classLoader.getResources(packagePath)
+            resources.asIterator().forEach { url ->
+                val classes = findClassesInPackage(packageName, url)
+                classes.forEach { clazz ->
+                    discoverClass(clazz, parent)
+                }
+            }
+        } catch (e: Exception) {
+            // Log error but don't fail discovery
+            System.err.println("Error discovering package $packageName: ${e.message}")
+        }
+    }
+
+    private fun findClassesInPackage(packageName: String, packageUrl: java.net.URL): List<Class<*>> {
+        val classes = mutableListOf<Class<*>>()
+        val packagePath = packageName.replace('.', '/')
+
+        when (packageUrl.protocol) {
+            "file" -> {
+                val packageDir = java.io.File(packageUrl.toURI())
+                if (packageDir.exists() && packageDir.isDirectory) {
+                    packageDir.listFiles()?.forEach { file ->
+                        if (file.isFile && file.name.endsWith(".class")) {
+                            val className = packageName + "." + file.name.substringBeforeLast(".class")
+                            try {
+                                val clazz = Class.forName(className)
+                                if (clazz.declaredMethods.any { it.isAnnotationPresent(Scenario::class.java) }) {
+                                    classes.add(clazz)
+                                }
+                            } catch (e: Exception) {
+                                // Skip classes that can't be loaded
+                            }
+                        }
+                    }
+                }
+            }
+            "jar" -> {
+                // Handle JAR files
+                val jarPath = packageUrl.path.substringAfter("file:").substringBefore("!")
+                try {
+                    java.util.jar.JarFile(jarPath).use { jar ->
+                        jar.entries().asIterator().forEach { entry ->
+                            if (!entry.isDirectory && entry.name.endsWith(".class") && entry.name.startsWith(packagePath)) {
+                                val className = entry.name.replace("/", ".").substringBeforeLast(".class")
+                                try {
+                                    val clazz = Class.forName(className)
+                                    if (clazz.declaredMethods.any { it.isAnnotationPresent(Scenario::class.java) }) {
+                                        classes.add(clazz)
+                                    }
+                                } catch (e: Exception) {
+                                    // Skip classes that can't be loaded
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Skip invalid JARs
+                }
+            }
+        }
+        return classes
     }
 
     private fun discoverClasspathRoot(root: java.net.URI, parent: TestDescriptor) {
-        // Classpath scanning would require a classpath scanning library
-        // For now, we rely on ClassSelector provided by the build tool
-        // This is the standard approach used by most test engines
+        try {
+            val rootDir = java.io.File(root)
+            if (!rootDir.exists() || !rootDir.isDirectory) return
+
+            rootDir.walkTopDown()
+                .filter { it.isFile && it.name.endsWith(".class") }
+                .filter { !it.name.contains('$') } // skip inner classes
+                .forEach { classFile ->
+                    val relativePath = classFile.relativeTo(rootDir).path
+                    val className = relativePath
+                        .removeSuffix(".class")
+                        .replace(java.io.File.separatorChar, '.')
+
+                    try {
+                        val clazz = Class.forName(className)
+                        discoverClass(clazz, parent)
+                    } catch (_: Exception) {
+                        // Skip classes that can't be loaded
+                    }
+                }
+        } catch (_: Exception) {
+            // Skip roots that can't be scanned
+        }
     }
 }

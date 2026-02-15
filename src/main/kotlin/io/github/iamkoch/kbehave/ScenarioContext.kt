@@ -3,7 +3,7 @@ package io.github.iamkoch.kbehave
 /**
  * Thread-local context for tracking steps during scenario execution.
  */
-object ScenarioContext {
+internal object ScenarioContext {
     private val steps = ThreadLocal<MutableList<Step>>()
 
     fun addStep(step: Step) {

@@ -3,28 +3,29 @@
 [![CI](https://github.com/iamkoch/KBehave/actions/workflows/ci.yml/badge.svg)](https://github.com/iamkoch/KBehave/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.iamkoch/kbehave.svg)](https://search.maven.org/artifact/io.github.iamkoch/kbehave)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Kotlin](https://img.shields.io/badge/Kotlin-1.9.20-blue.svg)](https://kotlinlang.org)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.1-blue.svg)](https://kotlinlang.org)
 
-A Kotlin version of [xBehave.net](https://github.com/adamralph/xbehave.net) - a JUnit 5 extension for describing each step in a test with natural language.
+A Kotlin port of [xBehave.net](https://github.com/adamralph/xbehave.net) - describe each step of a test in natural language, with every step visible as a separate node in your IDE's test tree.
 
-## Overview
+## Why KBehave?
 
-KBehave allows you to write BDD-style tests in Kotlin with a clean, expressive syntax. Each test scenario consists of multiple steps described in natural language, making your tests self-documenting and easy to understand.
+Most test frameworks show a single pass/fail per test method. When a test with 10 lines fails, you read console output to find which assertion broke.
 
-## Features
+KBehave gives you **step-level visibility**. Each step appears as a child node in IntelliJ's test tree with its own green/red/amber status. You see exactly which step failed at a glance, without reading logs.
 
-- ✅ **Natural Language Steps**: Describe test steps using plain English (or any language)
-- ✅ **Parameterized Scenarios**: Run the same scenario with different inputs using `@Example`
-- ✅ **Step Execution Control**: Skip steps and automatic skipping of remaining steps on failure
-- ✅ **Teardown Support**: Automatic cleanup after step execution
-- ✅ **Suspend Function Support**: Full support for Kotlin coroutines
-- ✅ **JUnit 5 Integration**: Works seamlessly with existing JUnit 5 test infrastructure
+```
+CalculatorTest
+  └─ simple addition
+      ├─ Given a calculator     ✓
+      ├─ When I add 2 and 3     ✓
+      └─ Then the result is 5   ✗
+```
 
-## Getting Started
+This is achieved via a custom JUnit Platform TestEngine - no Jupiter extension hacks. It works with standard Gradle and IntelliJ test runners out of the box.
 
-### Installation
+## Installation
 
-Add KBehave to your `build.gradle.kts`:
+### Gradle (Kotlin DSL)
 
 ```kotlin
 dependencies {
@@ -32,7 +33,26 @@ dependencies {
 }
 ```
 
-### Basic Usage
+### Gradle (Groovy DSL)
+
+```groovy
+dependencies {
+    testImplementation 'io.github.iamkoch:kbehave:1.0.0'
+}
+```
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>io.github.iamkoch</groupId>
+    <artifactId>kbehave</artifactId>
+    <version>1.0.0</version>
+    <scope>test</scope>
+</dependency>
+```
+
+## Getting Started
 
 ```kotlin
 import io.github.iamkoch.kbehave.Scenario
@@ -43,7 +63,7 @@ class CalculatorTest {
 
     @Scenario
     fun `simple addition`() {
-        var calculator: Calculator? = null
+        lateinit var calculator: Calculator
         var result = 0
 
         "Given a calculator" x {
@@ -51,7 +71,7 @@ class CalculatorTest {
         }
 
         "When I add 2 and 3" x {
-            result = calculator!!.add(2, 3)
+            result = calculator.add(2, 3)
         }
 
         "Then the result should be 5" x {
@@ -61,44 +81,66 @@ class CalculatorTest {
 }
 ```
 
-## Syntax
+That's it. No test runner configuration, no extension annotations. The KBehave TestEngine is discovered automatically via JUnit Platform's SPI.
 
-### The `x` DSL
+## The `x` DSL
 
 The core of KBehave is the `x` infix function on `String`:
 
 ```kotlin
 "Step description" x {
-    // Step implementation
+    // step implementation
 }
 ```
 
-The `x` function returns a `StepDefinition` that supports chaining with `teardown`:
+### Teardown
+
+Add cleanup actions that always execute after the step, even if it fails:
 
 ```kotlin
-"Step with cleanup" x {
-    // Step implementation
+"Given a resource" x {
+    resource = Resource()
+    resource.open()
 } teardown {
-    // Cleanup code
+    resource.close()
 }
 ```
 
-### String Interpolation
-
-Use Kotlin's string interpolation for dynamic step descriptions:
+Multiple teardowns can be chained:
 
 ```kotlin
-val x = 10
-val y = 5
+"Given resources" x {
+    db = connectToDb()
+    file = openFile()
+} teardown {
+    db.close()
+} teardown {
+    file.close()
+}
+```
 
-"Given the numbers $x and $y" x { }
-"When I multiply them together" x { result = x * y }
-"Then the result should be ${x * y}" x { assertEquals(50, result) }
+### Failure Behavior
+
+By default, if a step fails, remaining steps are skipped. Override this per step:
+
+```kotlin
+"When this might fail" x {
+    riskyOperation()
+} onFailure RemainingSteps.RUN  // continue to next steps
+```
+
+### Skipping Steps
+
+```kotlin
+"When this feature is ready".step()
+    .skip("Not implemented yet") x {
+    // won't execute
+}
 ```
 
 ## Parameterized Scenarios
 
-Use `@Example` annotations to run the same scenario with different parameters:
+Run the same scenario with different inputs using `@Example`:
 
 ```kotlin
 @Scenario
@@ -120,147 +162,13 @@ fun `addition with examples`(x: Int, y: Int, expected: Int) {
 }
 ```
 
-The `@Example` annotation supports different parameter types:
-- `intValues` for `Int` parameters
-- `longValues` for `Long` parameters
-- `stringValues` for `String` parameters
-- `booleanValues` for `Boolean` parameters
-- `doubleValues` for `Double` parameters
+Each `@Example` creates a separate sub-container in the test tree with its own steps. Supported parameter types: `intValues`, `longValues`, `stringValues`, `booleanValues`, `doubleValues`.
 
-You can mix different types in the same example:
-```kotlin
-@Example(stringValues = ["Alice"], intValues = [25])
-@Example(stringValues = ["Bob"], intValues = [30])
-fun `user scenario`(name: String, age: Int) {
-    // ...
-}
-```
+> **Note:** Each `@Example` should use a single value type. When mixing types (e.g. `intValues` and `stringValues` in the same annotation), parameters are extracted in a fixed order (int, long, string, boolean, double) which may not match your method signature.
 
-This will generate three separate test scenarios, one for each `@Example`.
+## Suspend Function Support
 
-## Teardown
-
-Add teardown actions that execute after a step completes using the inline `teardown` syntax:
-
-```kotlin
-@Scenario
-fun `scenario with cleanup`() {
-    var resource: Resource? = null
-
-    "Given a resource" x {
-        resource = Resource()
-        resource!!.open()
-    } teardown {
-        resource?.close()
-    }
-
-    "When I use the resource" x {
-        resource!!.doSomething()
-    }
-
-    "Then it will be cleaned up automatically" x {
-        // Teardown already executed after the first step
-    }
-}
-```
-
-You can also chain multiple teardown actions and combine with `onFailure`:
-
-```kotlin
-"Given a database connection" x {
-    connection = connectToDb()
-} teardown {
-    connection?.close()
-} teardown {
-    cleanupTempFiles()
-} onFailure RemainingSteps.RUN
-```
-
-## Skipping Steps
-
-Skip individual steps with an optional reason:
-
-```kotlin
-@Scenario
-fun `scenario with skipped step`() {
-    "Given this step executes" x {
-        println("This executes")
-    }
-
-    "When this step is skipped".step()
-        .skip("Feature not yet implemented") x {
-        println("This won't execute")
-    }
-
-    "Then this step also executes" x {
-        println("This executes too")
-    }
-}
-```
-
-## Controlling Step Execution on Failure
-
-By default, when a step fails, all remaining steps are skipped. You can control this behavior using the `onFailure` syntax:
-
-```kotlin
-@Scenario
-fun `teardown runs even on failure`() {
-    var cleanupExecuted = false
-
-    "Given a setup step" x {
-        setupResource()
-    }
-
-    "When this step fails" x {
-        throw Exception("Something went wrong")
-    } onFailure RemainingSteps.RUN  // Continue to next steps
-
-    "Then cleanup still happens" x {
-        cleanupExecuted = true
-        cleanup()
-    } onFailure RemainingSteps.RUN
-}
-```
-
-The `onFailure` infix function accepts a `RemainingSteps` enum:
-- `RemainingSteps.SKIP` (default) - Skip remaining steps if this step fails
-- `RemainingSteps.RUN` - Continue executing remaining steps even if this step fails
-
-This is particularly useful for ensuring teardown steps always run, or for scenarios where you want to collect multiple failure points.
-
-## Step Execution Model
-
-KBehave follows these execution rules:
-
-1. **Sequential Execution**: Steps execute in the order they're defined
-2. **Fail Fast (Default)**: If a step fails (throws an exception), remaining steps are skipped by default
-3. **Configurable Failure Behavior**: Use `onFailure RemainingSteps.RUN` to continue execution after failures
-4. **Teardown Guaranteed**: Teardown actions always execute, even if the step fails
-5. **Visual Feedback**: Step execution is logged to the console:
-   - `✓` - Step passed
-   - `✗` - Step failed
-   - `↷` - Step skipped
-
-### Test Reporting
-
-Currently, KBehave reports test results at the **scenario level** (not individual steps) in most IDEs and test runners. This means:
-
-- ✅ Each `@Scenario` appears as a runnable test in your IDE
-- ✅ Step execution details are printed to the console output
-- ✅ You can see which steps passed/failed in the console
-- ⚠️  Steps do NOT appear as individual test nodes in the IDE test tree (unlike xBehave.net)
-
-To see detailed step-by-step execution:
-1. Run the tests
-2. Check the console output for the `✓`, `✗`, and `↷` symbols showing each step's status
-
-**Note**: Full IDE integration with individual step reporting (like xBehave.net's test tree) requires a custom JUnit Platform TestEngine, which is currently in development.
-
-## Advanced Features
-
-### Suspend Functions
-
-KBehave fully supports Kotlin coroutines:
+Steps fully support Kotlin coroutines:
 
 ```kotlin
 @Scenario
@@ -268,109 +176,91 @@ suspend fun `async scenario`() {
     "Given an async operation" x {
         delay(100)
     }
-
-    "When I await the result" x {
-        val result = async { fetchData() }.await()
-    }
 }
 ```
 
-### Alternative Step Syntax
+## Configuration
 
-While the default `x` DSL is recommended, you can use alternative patterns:
+KBehave works out of the box with standard JUnit Platform setup. If your project also runs JUnit Jupiter tests, both engines coexist - Jupiter handles `@Test` methods, KBehave handles `@Scenario` methods.
+
+### Gradle
 
 ```kotlin
-// Using the step builder for skip functionality
-"Optional feature".step().skip("Not ready yet") x {
-    println("Won't execute")
+tasks.test {
+    useJUnitPlatform()
 }
+```
 
-// Using BDD aliases (if preferred)
+No `excludeEngines` or `includeEngines` configuration is needed.
+
+## BDD Aliases
+
+For teams that prefer explicit BDD keywords:
+
+```kotlin
 "Given a calculator" given { calculator = Calculator() }
 "When I add numbers" when_ { result = calculator.add(1, 2) }
 "Then the result is correct" then { assertEquals(3, result) }
 ```
 
-### Combining Features
+## Coming from xBehave.net?
 
-You can combine teardown with other features:
+| xBehave.net | KBehave |
+|-------------|---------|
+| `[Scenario]` + `.x()` | `@Scenario` + `x` |
+| `[Example(...)]` | `@Example(...)` |
+| `.Skip("reason")` | `.step().skip("reason")` |
+| `.Teardown(() => ...)` | `teardown { ... }` |
+| `.OnFailure(RemainingSteps.Run)` | `onFailure RemainingSteps.RUN` |
+| async/await | suspend functions |
+| xUnit.net | JUnit 5 |
+
+## Troubleshooting
+
+**Steps don't appear as child nodes in IntelliJ:**
+Ensure `@Scenario` does NOT have `@Test` or `@TestTemplate` as meta-annotations. KBehave uses its own TestEngine.
+
+**TestEngine not discovered:**
+Verify `META-INF/services/org.junit.platform.engine.TestEngine` exists in the JAR and contains `io.github.iamkoch.kbehave.engine.KBehaveTestEngine`.
+
+**NoSuchMethodException during test instance creation:**
+KBehave requires a no-arg constructor. For Spring Boot tests with DI, use JUnit Jupiter instead.
+
+**Side effects running twice:**
+KBehave invokes scenario methods during both the discovery and execution phases. Code outside `x { }` lambdas (e.g. variable assignments, database connections) will execute twice. Keep side effects inside the `x { }` block:
 
 ```kotlin
+// Bad - connectToDb() runs twice:
 @Scenario
-@Example(intValues = [100, 200])
-@Example(intValues = [300, 400])
-fun `parameterized with teardown`(amount: Int, expected: Int) {
-    var transaction: Transaction? = null
+fun test() {
+    val db = connectToDb()
+    "query" x { db.query() }
+}
 
-    "Given a transaction of $amount" x {
-        transaction = startTransaction(amount)
-    } teardown {
-        transaction?.rollback()
-    }
-
-    "Then the transaction is processed" x {
-        assertEquals(expected, transaction!!.total)
-    }
+// Good - connectToDb() runs only during execution:
+@Scenario
+fun test() {
+    lateinit var db: Database
+    "Given a database connection" x { db = connectToDb() }
+    "When I query" x { db.query() }
 }
 ```
 
-## Comparison with xBehave.net
-
-| Feature | xBehave.net | KBehave |
-|---------|-------------|---------|
-| Basic scenarios | `[Scenario]` + `.x()` | `@Scenario` + `x` |
-| Parameterized tests | `[Example(...)]` | `@Example(...)` |
-| Skip steps | `.Skip()` | `.skip()` |
-| Teardown | `.Teardown()` | `teardown` |
-| Failure behavior | `.OnFailure()` | `onFailure` |
-| Test framework | xUnit.net | JUnit 5 |
-| Language | C# | Kotlin |
-| Async support | async/await | suspend functions |
-
 ## Examples
 
-Check out the [example tests](src/test/kotlin/io/github/iamkoch/kbehave/examples) for more usage patterns:
+See [src/test/kotlin/.../examples](src/test/kotlin/io/github/iamkoch/kbehave/examples) for runnable examples:
 
-- [BasicScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/BasicScenarioTest.kt) - Basic scenario syntax
-- [ParameterizedScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/ParameterizedScenarioTest.kt) - Using `@Example`
+- [BasicScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/BasicScenarioTest.kt) - Core syntax
+- [ParameterizedScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/ParameterizedScenarioTest.kt) - `@Example` usage
 - [TeardownScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/TeardownScenarioTest.kt) - Resource cleanup
 - [SkipScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/SkipScenarioTest.kt) - Skipping steps
-- [OnFailureScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/OnFailureScenarioTest.kt) - Controlling execution on failure
-
-## Building
-
-```bash
-./gradlew build
-```
-
-## Running Tests
-
-```bash
-./gradlew test
-```
-
-## Philosophy
-
-Like xBehave.net, KBehave follows these principles:
-
-1. **Tests as Documentation**: Each step should read like a specification
-2. **Fail Fast**: Stop at the first failure to make debugging easier
-3. **Minimal Ceremony**: Clean, expressive syntax without boilerplate
-4. **Framework Integration**: Works with standard testing tools and runners
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- [OnFailureScenarioTest.kt](src/test/kotlin/io/github/iamkoch/kbehave/examples/OnFailureScenarioTest.kt) - Failure behavior control
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [xBehave.net](https://github.com/adamralph/xbehave.net) by Adam Ralph for the original concept and design
+- [xBehave.net](https://github.com/adamralph/xbehave.net) by Adam Ralph for the original concept
 - The JUnit 5 team for the extensible testing platform
-
----
-
-Made with ❤️ for the Kotlin community

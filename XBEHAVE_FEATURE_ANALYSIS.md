@@ -1,4 +1,6 @@
-# xBehave Usage Analysis Report
+# xBehave Usage Analysis Report (Development-Time Analysis)
+
+> **Note:** This is a development-time analysis document. It was created during initial development to verify feature parity with xBehave.net. For user-facing documentation, see [README.md](README.md).
 
 ## Executive Summary
 

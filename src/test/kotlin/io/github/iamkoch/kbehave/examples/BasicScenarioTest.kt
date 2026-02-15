@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 class BasicScenarioTest {
 
     @Scenario
-    fun `simple addition scenario`() {
+    fun `simple_addition_scenario`() {
         var calculator: Calculator? = null
         var result = 0
 

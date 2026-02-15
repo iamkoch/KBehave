@@ -9,9 +9,18 @@ kt_jvm_library(
         "@maven//:org_jetbrains_kotlin_kotlin_reflect",
         "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
         "@maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core_jvm",
-        "@maven//:org_junit_jupiter_junit_jupiter_api",
-        "@maven//:org_junit_jupiter_junit_jupiter_params",
         "@maven//:org_junit_platform_junit_platform_engine",
+    ],
+)
+
+kt_jvm_library(
+    name = "bazel-test-runner",
+    testonly = True,
+    srcs = ["src/test/kotlin/io/github/iamkoch/kbehave/bazel/BazelTestRunner.kt"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@maven//:org_junit_platform_junit_platform_console",
     ],
 )
 
@@ -37,14 +46,13 @@ kt_jvm_library(
 java_test(
   name = "tests",
   use_testrunner = False,
-  main_class = "org.junit.platform.console.ConsoleLauncher",
-  args = [
-    "--select-package=io.github.iamkoch.kbehave.examples",
-    "--details=tree",
-    "--fail-if-no-tests",
-  ],
+  main_class = "io.github.iamkoch.kbehave.bazel.BazelTestRunner",
+  # No hardcoded args - BazelTestRunner reads TESTBRIDGE_TEST_ONLY and handles them dynamically
+  args = [],
   runtime_deps = [
       ":tests-lib",
+      ":kbehave",
+      ":bazel-test-runner",  # BazelTestRunner wrapper for dynamic test filtering
       "@maven//:org_junit_platform_junit_platform_launcher",
       "@maven//:org_junit_platform_junit_platform_console",
       "@maven//:org_junit_jupiter_junit_jupiter_engine",

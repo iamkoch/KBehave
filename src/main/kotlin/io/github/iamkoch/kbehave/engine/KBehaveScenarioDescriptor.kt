@@ -15,10 +15,11 @@ import kotlin.reflect.jvm.kotlinFunction
 /**
  * TestDescriptor for a single @Scenario method.
  *
- * Acts as a container for individual step descriptors, creating a test tree
+ * Acts as a container for individual step descriptors (non-parameterized)
+ * or example descriptors (parameterized with @Example), creating a test tree
  * where each step is a separate test node for precise failure reporting.
  */
-class KBehaveScenarioDescriptor(
+internal class KBehaveScenarioDescriptor(
     uniqueId: UniqueId,
     private val testClass: Class<*>,
     private val method: Method
@@ -46,17 +47,31 @@ class KBehaveScenarioDescriptor(
         val examples = method.getAnnotationsByType(Example::class.java)
 
         if (examples.isEmpty()) {
-            // No examples - discover steps once
+            // No examples - discover steps directly as children
             discoverStepsForParameters(emptyArray())
         } else {
-            // Multiple examples - discover steps for first example only
-            // (all examples have same steps, just different parameter values)
-            val values = extractValues(examples[0])
-            discoverStepsForParameters(values)
+            // Multiple examples - create a sub-container per example
+            examples.forEachIndexed { index, example ->
+                val values = extractValues(example)
+                val exampleName = formatExampleName(values, index)
+                val exampleDescriptor = KBehaveExampleDescriptor(
+                    uniqueId.append("example", exampleName),
+                    exampleName,
+                    testClass,
+                    method,
+                    values
+                )
+                addChild(exampleDescriptor)
+                exampleDescriptor.discoverSteps()
+            }
         }
     }
 
-    private fun extractValues(example: Example): Array<Any> {
+    private fun formatExampleName(values: Array<Any>, index: Int): String {
+        return "Example #${index + 1}: [${values.joinToString(", ")}]"
+    }
+
+    internal fun extractValues(example: Example): Array<Any> {
         val values = mutableListOf<Any>()
 
         if (example.intValues.isNotEmpty()) {
@@ -82,7 +97,6 @@ class KBehaveScenarioDescriptor(
         ScenarioContext.clear()
 
         try {
-            // Create instance and invoke the scenario method to collect steps
             val instance = createTestInstance()
             val kotlinFunction = method.kotlinFunction
 
@@ -102,7 +116,6 @@ class KBehaveScenarioDescriptor(
                 }
             }
 
-            // Get collected steps and create descriptors
             val steps = ScenarioContext.getSteps()
             steps.forEachIndexed { index, step ->
                 val stepDescriptor = KBehaveStepDescriptor(
@@ -117,19 +130,10 @@ class KBehaveScenarioDescriptor(
         }
     }
 
-    /**
-     * Creates an instance of the test class.
-     *
-     * For simple classes, uses the no-arg constructor.
-     * For classes with constructor parameters (like Spring Boot tests with @Autowired),
-     * this would need to be enhanced to work with dependency injection frameworks.
-     */
     private fun createTestInstance(): Any {
-        // Try no-arg constructor first
         return try {
             testClass.getDeclaredConstructor().newInstance()
         } catch (e: NoSuchMethodException) {
-            // If no no-arg constructor, we need DI framework support
             throw IllegalStateException(
                 """
                 KBehave TestEngine: ${testClass.simpleName} requires constructor parameters.

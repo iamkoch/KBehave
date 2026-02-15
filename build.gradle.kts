@@ -1,36 +1,40 @@
 import java.security.MessageDigest
 
 plugins {
-    kotlin("jvm") version "1.9.20"
+    kotlin("jvm") version "2.1.21"
+    id("org.jetbrains.dokka") version "1.9.20"
     `java-library`
     `maven-publish`
     signing
 }
 
 group = "io.github.iamkoch"
-version = "1.0.0-SNAPSHOT"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
+    // JUnit BOM for version alignment across all scopes
+    implementation(platform("org.junit:junit-bom:5.14.2"))
+    testImplementation(platform("org.junit:junit-bom:5.14.2"))
+
     // Kotlin
     implementation(kotlin("stdlib"))
     implementation(kotlin("reflect"))
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
-    // JUnit 5
-    implementation("org.junit.jupiter:junit-jupiter-api:5.10.0")
-    implementation("org.junit.jupiter:junit-jupiter-params:5.10.0")
-    implementation("org.junit.platform:junit-platform-engine:1.10.0")
+    // JUnit Platform (engine SPI for KBehave TestEngine)
+    implementation("org.junit.platform:junit-platform-engine")
 
     // Test dependencies
-    testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation(kotlin("test"))
-    testImplementation("io.mockk:mockk:1.13.8")
-    testImplementation("org.assertj:assertj-core:3.24.2")
+    testImplementation("io.mockk:mockk:1.14.9")
+    testImplementation("org.assertj:assertj-core:3.27.7")
+    testImplementation("org.junit.platform:junit-platform-testkit")
+    testImplementation("org.junit.platform:junit-platform-console")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -40,24 +44,27 @@ kotlin {
 
 tasks.test {
     useJUnitPlatform()
-}
-
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions {
-        freeCompilerArgs += "-Xjsr305=strict"
-        jvmTarget = "17"
-    }
+    // Exclude engine test fixture inner classes from direct discovery.
+    // They contain intentionally-failing @Scenario methods and are executed
+    // only via junit-platform-testkit inside KBehaveEngineTest.
+    exclude("**/engine/KBehaveEngineTest\$*")
 }
 
 java {
     withSourcesJar()
-    withJavadocJar()
+}
+
+val dokkaJavadocJar by tasks.registering(Jar::class) {
+    dependsOn(tasks.dokkaJavadoc)
+    from(tasks.dokkaJavadoc.flatMap { it.outputDirectory })
+    archiveClassifier.set("javadoc")
 }
 
 publishing {
     publications {
         create<MavenPublication>("maven") {
             from(components["java"])
+            artifact(dokkaJavadocJar)
             artifactId = "kbehave"
 
             pom {
@@ -76,6 +83,7 @@ publishing {
                     developer {
                         id.set("iamkoch")
                         name.set("Koch")
+                        email.set("ant@iamkoch.com")
                         url.set("https://github.com/iamkoch")
                     }
                 }
@@ -91,13 +99,11 @@ publishing {
 
     repositories {
         maven {
-            name = "OSSRH"
-            val releasesRepoUrl = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
-            val snapshotsRepoUrl = uri("https://s01.oss.sonatype.org/content/repositories/snapshots/")
-            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+            name = "CentralPortal"
+            url = uri("https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/")
             credentials {
-                username = findProperty("ossrhUsername") as String? ?: System.getenv("OSSRH_USERNAME")
-                password = findProperty("ossrhPassword") as String? ?: System.getenv("OSSRH_PASSWORD")
+                username = findProperty("ossrhUsername") as String? ?: System.getenv("MAVEN_USERNAME")
+                password = findProperty("ossrhPassword") as String? ?: System.getenv("MAVEN_PASSWORD")
             }
         }
     }
@@ -107,7 +113,6 @@ signing {
     val signingKey = findProperty("signingKey") as String? ?: System.getenv("SIGNING_KEY")
     val signingPassword = findProperty("signingPassword") as String? ?: System.getenv("SIGNING_PASSWORD")
 
-    // Only sign if credentials are present (skip for local publishing)
     setRequired {
         signingKey != null && signingPassword != null
     }
@@ -141,14 +146,12 @@ tasks.register("generateChecksums") {
             files.forEach { publishedFile ->
                 println("Processing: ${publishedFile.name}")
 
-                // Generate SHA-1
                 val sha1Bytes = MessageDigest.getInstance("SHA-1").digest(publishedFile.readBytes())
                 val sha1 = sha1Bytes.joinToString("") { "%02x".format(it) }
                 val sha1File = publishedFile.resolveSibling("${publishedFile.name}.sha1")
                 sha1File.writeText(sha1)
                 println("  Created: ${sha1File.name}")
 
-                // Generate MD5
                 val md5Bytes = MessageDigest.getInstance("MD5").digest(publishedFile.readBytes())
                 val md5 = md5Bytes.joinToString("") { "%02x".format(it) }
                 val md5File = publishedFile.resolveSibling("${publishedFile.name}.md5")
