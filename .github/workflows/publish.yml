@@ -34,3 +34,11 @@ jobs:
         MAVEN_PASSWORD: ${{ secrets.MAVEN_PASSWORD }}
         SIGNING_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         SIGNING_PASSWORD: ${{ secrets.GPG_PASSPHRASE }}
+
+    - name: Transfer staging to Central Portal
+      run: |
+        TOKEN=$(echo -n "${{ secrets.MAVEN_USERNAME }}:${{ secrets.MAVEN_PASSWORD }}" | base64)
+        curl -v --fail \
+          -X POST \
+          -H "Authorization: Bearer ${TOKEN}" \
+          "https://ossrh-staging-api.central.sonatype.com/manual/upload/defaultRepository/io.github.iamkoch?publishing_type=user_managed"
